@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -12,7 +12,9 @@ import {
   Dimensions,
   FlatList,
   TouchableWithoutFeedback,
-  Animated
+  Animated,
+  Platform,
+  PermissionsAndroid
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import RNFS from 'react-native-fs';
@@ -22,6 +24,8 @@ import { RootStackParamList, Book, Chapter } from '../types';
 import { MOCK_BOOKS } from '../data/mockBooks';
 import { generateImageFromText } from '../services/ImageGenerationService';
 import { EpubParser } from '../utils/EpubParser';
+import { useTheme, useLanguage } from '../contexts';
+import { ThemeType } from '../themes';
 
 type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
 
@@ -32,6 +36,8 @@ export default function ReaderScreen() {
   const route = useRoute<ReaderScreenRouteProp>();
   const navigation = useNavigation();
   const { bookId, book: paramBook } = route.params;
+  const { theme, setTheme, themeType } = useTheme();
+  const { t } = useLanguage();
   
   const [currentBook, setCurrentBook] = useState<Book | null>(null);
   const [isLoadingContent, setIsLoadingContent] = useState(true);
@@ -51,6 +57,9 @@ export default function ReaderScreen() {
   // TOC
   const [isTOCVisible, setIsTOCVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.8)).current;
+
+  // Settings Modal
+  const [isSettingsVisible, setIsSettingsVisible] = useState(false);
 
   useEffect(() => {
     const loadContent = async () => {
@@ -153,13 +162,9 @@ export default function ReaderScreen() {
           }
           
           setChapterContent(content);
-          // Reset scroll when changing chapters unless it's the initial load
-          // But for initial load, we might want to restore scroll. 
-          // Current logic: only restore if index matches initial index.
-          // Simpler: Just scroll to top on chapter change, handle restore separately.
       } catch (e) {
           console.error('Failed to load chapter', e);
-          Alert.alert('Error', 'Failed to load chapter content.');
+          Alert.alert(t('error'), t('loading'));
       }
   };
 
@@ -180,10 +185,7 @@ export default function ReaderScreen() {
         let books: Book[] = storedBooks ? JSON.parse(storedBooks) : [];
         const index = books.findIndex(b => b.id === updatedBook.id);
         
-        // Prepare book for storage (don't store content)
         const bookToSave = { ...updatedBook, content: '' };
-        // We do save chapters metadata (paths), but not their content if it's large.
-        // Our parser logic puts content in files, so chapters array is safe to save.
         
         if (index !== -1) {
             books[index] = bookToSave;
@@ -203,18 +205,14 @@ export default function ReaderScreen() {
             lastChapterIndex: currentChapterIndex,
             lastScrollY: lastScrollYRef.current
         };
-        // Update local state
         setCurrentBook(updatedBook);
-        // Save to storage
         await updateBookInStorage(updatedBook);
-        console.log(`Saved progress: Chapter ${currentChapterIndex}, Scroll ${lastScrollYRef.current}`);
     }
   };
 
-  // Save progress on unmount or chapter change
   useEffect(() => {
       return () => { saveProgress(); };
-  }, [currentChapterIndex, bookId]); // Also save when chapter changes
+  }, [currentChapterIndex, bookId]);
 
   const increaseFontSize = () => setFontSize(prev => Math.min(prev + 2, 40));
   const decreaseFontSize = () => setFontSize(prev => Math.max(prev - 2, 12));
@@ -245,21 +243,61 @@ export default function ReaderScreen() {
     setIsImageModalVisible(true);
     
     try {
-      // Append style prompt if available
       let prompt = selectedText;
       if (currentBook?.stylePrompt) {
           prompt = `${currentBook.stylePrompt}\n\n${selectedText}`;
-          console.log('Using style prompt:', currentBook.stylePrompt);
       }
       
       const url = await generateImageFromText(prompt);
       setGeneratedImageUrl(url);
     } catch (error: any) {
       console.error('Generation error:', error);
-      Alert.alert('生成失败', error.message || '请检查网络或 API Key 配置');
+      Alert.alert(t('generationFailed'), error.message || t('error'));
       setIsImageModalVisible(false);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleSaveImage = async () => {
+    if (!generatedImageUrl) return;
+
+    try {
+        if (Platform.OS === 'android' && Platform.Version < 33) {
+            const granted = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+                {
+                    title: t('save'),
+                    message: "App needs permission to save image",
+                    buttonNeutral: t('cancel'),
+                    buttonNegative: t('cancel'),
+                    buttonPositive: t('confirm')
+                }
+            );
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+                Alert.alert(t('error'), "Permission denied");
+                return;
+            }
+        }
+
+        const timestamp = new Date().getTime();
+        const destPath = `${RNFS.PicturesDirectoryPath}/ImaginReader_${timestamp}.png`;
+        
+        const options = {
+            fromUrl: generatedImageUrl,
+            toFile: destPath
+        };
+
+        const result = await RNFS.downloadFile(options).promise;
+
+        if (result.statusCode === 200) {
+            Alert.alert(t('save'), `Saved to:\n${destPath}`);
+        } else {
+            Alert.alert(t('error'), "Failed to save image");
+        }
+    } catch (error: any) {
+        console.error(error);
+        Alert.alert(t('error'), error.message);
     }
   };
 
@@ -283,8 +321,9 @@ export default function ReaderScreen() {
   const renderTOCItem = ({ item, index }: { item: Chapter, index: number }) => (
       <TouchableOpacity 
         style={[
-            styles.tocItem, 
-            currentChapterIndex === index && styles.tocItemActive
+            styles.tocItem,
+            { borderBottomColor: theme.colors.border },
+            currentChapterIndex === index && { backgroundColor: theme.colors.tocActiveBackground }
         ]}
         onPress={() => {
             toggleTOC();
@@ -293,7 +332,8 @@ export default function ReaderScreen() {
       >
           <Text style={[
               styles.tocText,
-              currentChapterIndex === index && styles.tocTextActive
+              { color: theme.colors.tocText },
+              currentChapterIndex === index && { color: theme.colors.tocActiveText }
           ]} numberOfLines={1}>
               {item.title}
           </Text>
@@ -302,36 +342,26 @@ export default function ReaderScreen() {
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
-      title: currentBook?.title || '阅读',
+      title: currentBook?.title || t('reader'),
       headerLeft: () => (
           <TouchableOpacity onPress={toggleTOC} style={{ marginLeft: 10, padding: 5 }}>
-              <Text style={{ fontSize: 24 }}>≡</Text>
+              <Text style={{ fontSize: 24, color: theme.colors.headerText }}>≡</Text>
           </TouchableOpacity>
       ),
       headerRight: () => (
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={decreaseFontSize} style={styles.fontBtn}>
-            <Text style={styles.fontBtnText}>A-</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={increaseFontSize} style={styles.fontBtn}>
-            <Text style={styles.fontBtnText}>A+</Text>
+          <TouchableOpacity onPress={() => setIsSettingsVisible(true)} style={styles.fontBtn}>
+            <Text style={{ fontSize: 20, color: theme.colors.primary }}>Aa</Text>
           </TouchableOpacity>
         </View>
       ),
+      headerStyle: { backgroundColor: theme.colors.headerBackground },
+      headerTintColor: theme.colors.headerText,
     });
-  }, [navigation, currentBook, isTOCVisible]);
-
-  useEffect(() => {
-    if (webviewRef.current) {
-      webviewRef.current.injectJavaScript(`
-        document.body.style.fontSize = '${fontSize}px';
-        true;
-      `);
-    }
-  }, [fontSize]);
+  }, [navigation, currentBook, isTOCVisible, theme]);
 
   // Inject JS to listen for selection and scroll
-  const injectedJS = `
+  const injectedJS = useMemo(() => `
     let lastKnownScrollPosition = 0;
     let ticking = false;
     window.addEventListener('scroll', function(e) {
@@ -367,9 +397,9 @@ export default function ReaderScreen() {
         return false;
     }
     true;
-  `;
+  `, []);
 
-  const htmlContent = `
+  const htmlContent = useMemo(() => `
     <!DOCTYPE html>
     <html>
     <head>
@@ -380,15 +410,16 @@ export default function ReaderScreen() {
           line-height: 1.6;
           padding: 20px;
           padding-bottom: 100px;
-          color: #333;
-          font-family: -apple-system, system-ui, sans-serif;
-          background-color: #fff;
+          color: ${theme.colors.readerText};
+          font-family: ${theme.typography.fontFamily};
+          background-color: ${theme.colors.readerBackground};
           max-width: 100vw;
           overflow-x: hidden;
           word-wrap: break-word;
         }
         img { max-width: 100%; height: auto; display: block; margin: 10px auto; }
         pre { white-space: pre-wrap; font-family: inherit; }
+        ::selection { background: ${theme.colors.readerHighlight}; }
       </style>
     </head>
     <body>
@@ -402,20 +433,30 @@ export default function ReaderScreen() {
       </script>
     </body>
     </html>
-  `;
+  `, [chapterContent, fontSize, theme]);
+
+  const handleWebViewLoad = useCallback(() => {
+    // Restore scroll position after content load
+    if (webviewRef.current) {
+        webviewRef.current.injectJavaScript(`
+            window.scrollTo(0, ${lastScrollYRef.current || 0});
+            true;
+        `);
+    }
+  }, []);
 
   if (isLoadingContent) {
     return (
-      <View style={[styles.container, styles.loadingContainer]}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={{ marginTop: 10, color: '#666' }}>Loading...</Text>
+      <View style={[styles.container, styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ marginTop: 10, color: theme.colors.textSecondary }}>{t('loading')}</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+    <View style={[styles.container, { backgroundColor: theme.colors.readerBackground }]}>
+      <StatusBar barStyle={themeType === 'dark' ? "light-content" : "dark-content"} backgroundColor={theme.colors.headerBackground} />
       
       {/* Chapter Content */}
       <WebView
@@ -425,35 +466,36 @@ export default function ReaderScreen() {
         allowFileAccessFromFileURLs={true}
         allowUniversalAccessFromFileURLs={true}
         source={{ html: htmlContent, baseUrl: '' }}
-        style={styles.webview}
+        style={[styles.webview, { backgroundColor: theme.colors.readerBackground }]}
         showsVerticalScrollIndicator={false}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         injectedJavaScript={injectedJS}
         onMessage={handleWebViewMessage}
+        onLoadEnd={handleWebViewLoad}
       />
 
       {/* Chapter Navigation Buttons (Overlay) */}
       {currentBook?.chapters && currentBook.chapters.length > 0 && (
-          <View style={styles.chapterNavContainer}>
+          <View style={[styles.chapterNavContainer, { backgroundColor: theme.colors.readerBackground, borderTopColor: theme.colors.border }]}>
               <TouchableOpacity 
-                style={[styles.navBtn, currentChapterIndex === 0 && styles.navBtnDisabled]} 
+                style={[styles.navBtn, { backgroundColor: theme.colors.buttonSecondaryBackground }, currentChapterIndex === 0 && styles.navBtnDisabled]} 
                 onPress={() => changeChapter(currentChapterIndex - 1)}
                 disabled={currentChapterIndex === 0}
               >
-                  <Text style={styles.navBtnText}>{'< 上一章'}</Text>
+                  <Text style={[styles.navBtnText, { color: theme.colors.buttonSecondaryText }]}>{`< ${t('previousChapter')}`}</Text>
               </TouchableOpacity>
               
-              <Text style={styles.chapterInfo}>
+              <Text style={[styles.chapterInfo, { color: theme.colors.textSecondary }]}>
                   {currentChapterIndex + 1} / {currentBook.chapters.length}
               </Text>
               
               <TouchableOpacity 
-                style={[styles.navBtn, currentChapterIndex === currentBook.chapters.length - 1 && styles.navBtnDisabled]} 
+                style={[styles.navBtn, { backgroundColor: theme.colors.buttonSecondaryBackground }, currentChapterIndex === currentBook.chapters.length - 1 && styles.navBtnDisabled]} 
                 onPress={() => changeChapter(currentChapterIndex + 1)}
                 disabled={currentChapterIndex === currentBook.chapters.length - 1}
               >
-                  <Text style={styles.navBtnText}>{'下一章 >'}</Text>
+                  <Text style={[styles.navBtnText, { color: theme.colors.buttonSecondaryText }]}>{`${t('nextChapter')} >`}</Text>
               </TouchableOpacity>
           </View>
       )}
@@ -464,8 +506,14 @@ export default function ReaderScreen() {
             <TouchableWithoutFeedback onPress={toggleTOC}>
                 <View style={styles.tocBackdrop} />
             </TouchableWithoutFeedback>
-            <Animated.View style={[styles.tocDrawer, { transform: [{ translateX: slideAnim }] }]}>
-                <Text style={styles.tocHeader}>目录</Text>
+            <Animated.View style={[styles.tocDrawer, { 
+                transform: [{ translateX: slideAnim }],
+                backgroundColor: theme.colors.tocBackground
+            }]}>
+                <Text style={[styles.tocHeader, { 
+                    color: theme.colors.tocText, 
+                    borderBottomColor: theme.colors.border 
+                }]}>{t('toc')}</Text>
                 <FlatList
                     data={currentBook?.chapters || []}
                     renderItem={renderTOCItem}
@@ -476,13 +524,65 @@ export default function ReaderScreen() {
         </View>
       )}
 
-      {/* Selection Menu - Only Generate Image */}
+      {/* Settings Modal */}
+      <Modal
+        visible={isSettingsVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsSettingsVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setIsSettingsVisible(false)}>
+            <View style={styles.modalOverlay}>
+                <TouchableWithoutFeedback>
+                    <View style={[styles.settingsModal, { backgroundColor: theme.colors.surface }]}>
+                        <View style={styles.settingRow}>
+                            <Text style={[styles.settingLabel, { color: theme.colors.text }]}>{t('fontSize')}</Text>
+                            <View style={styles.settingControls}>
+                                <TouchableOpacity onPress={decreaseFontSize} style={[styles.settingBtn, { backgroundColor: theme.colors.buttonSecondaryBackground }]}>
+                                    <Text style={{ color: theme.colors.buttonSecondaryText }}>A-</Text>
+                                </TouchableOpacity>
+                                <Text style={[styles.settingValue, { color: theme.colors.text }]}>{fontSize}</Text>
+                                <TouchableOpacity onPress={increaseFontSize} style={[styles.settingBtn, { backgroundColor: theme.colors.buttonSecondaryBackground }]}>
+                                    <Text style={{ color: theme.colors.buttonSecondaryText }}>A+</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                        <View style={styles.settingRow}>
+                            <Text style={[styles.settingLabel, { color: theme.colors.text }]}>{t('theme')}</Text>
+                            <View style={styles.themeOptions}>
+                                {(['light', 'dark', 'sepia'] as ThemeType[]).map((tType) => (
+                                    <TouchableOpacity 
+                                        key={tType}
+                                        style={[
+                                            styles.themeOption, 
+                                            { backgroundColor: tType === 'light' ? '#fff' : tType === 'dark' ? '#333' : '#F4ECD8' },
+                                            themeType === tType && { borderWidth: 2, borderColor: theme.colors.primary }
+                                        ]}
+                                        onPress={() => setTheme(tType)}
+                                    >
+                                        <Text style={{ 
+                                            color: tType === 'light' ? '#000' : tType === 'dark' ? '#fff' : '#5B4636',
+                                            fontSize: 12 
+                                        }}>
+                                            {t(tType)}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Selection Menu */}
       {isMenuVisible && selectedText.length > 0 && (
-        <View style={styles.menuContainer}>
-          <Text style={styles.menuTitle} numberOfLines={1}>Selected: {selectedText}</Text>
+        <View style={[styles.menuContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+          <Text style={[styles.menuTitle, { color: theme.colors.textSecondary }]} numberOfLines={1}>Selected: {selectedText}</Text>
           <View style={styles.menuButtons}>
-            <TouchableOpacity style={[styles.menuBtn, styles.menuBtnPrimary]} onPress={handleGenerateImage}>
-              <Text style={styles.menuBtnTextPrimary}>生成图画</Text>
+            <TouchableOpacity style={[styles.menuBtn, { backgroundColor: theme.colors.primary }]} onPress={handleGenerateImage}>
+              <Text style={{ color: theme.colors.buttonPrimaryText, fontWeight: '600' }}>{t('generateImage')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -498,20 +598,27 @@ export default function ReaderScreen() {
         <TouchableWithoutFeedback onPress={() => setIsImageModalVisible(false)}>
             <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
-                <View style={styles.modalContent}>
-                    <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>生成结果</Text>
+                <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+                    <View style={[styles.modalHeader, { borderBottomColor: theme.colors.border }]}>
                     <TouchableOpacity onPress={() => setIsImageModalVisible(false)}>
-                        <Text style={styles.closeBtn}>关闭</Text>
+                        <Text style={[styles.closeBtn, { color: theme.colors.primary }]}>{t('close')}</Text>
                     </TouchableOpacity>
+                    <Text style={[styles.modalTitle, { color: theme.colors.text }]}>{t('generationResult')}</Text>
+                    {generatedImageUrl ? (
+                        <TouchableOpacity onPress={handleSaveImage}>
+                            <Text style={[styles.saveBtn, { color: theme.colors.success }]}>{t('save')}</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={{width: 40}} /> 
+                    )}
                     </View>
                     
-                    <View style={styles.imageContainer}>
+                    <View style={[styles.imageContainer, { backgroundColor: theme.colors.background }]}>
                     {isGenerating ? (
                         <View style={styles.loadingState}>
-                        <ActivityIndicator size="large" color="#007AFF" />
-                        <Text style={styles.loadingText}>正在根据文字生成画面...</Text>
-                        <Text style={styles.loadingSubText}>
+                        <ActivityIndicator size="large" color={theme.colors.primary} />
+                        <Text style={[styles.loadingText, { color: theme.colors.text }]}>{t('generating')}</Text>
+                        <Text style={[styles.loadingSubText, { color: theme.colors.textSecondary }]}>
                             {currentBook?.stylePrompt ? `Style: ${currentBook.stylePrompt}\n` : ''}
                             "{selectedText.substring(0, 30)}{selectedText.length > 30 ? '...' : ''}"
                         </Text>
@@ -523,7 +630,7 @@ export default function ReaderScreen() {
                         resizeMode="contain"
                         />
                     ) : (
-                        <Text>生成失败</Text>
+                        <Text style={{ color: theme.colors.error }}>{t('generationFailed')}</Text>
                     )}
                     </View>
                 </View>
@@ -538,7 +645,6 @@ export default function ReaderScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
   },
   loadingContainer: {
     flex: 1,
@@ -552,22 +658,17 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 10,
   },
   fontBtn: {
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  fontBtnText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#007AFF',
-  },
   menuContainer: {
     position: 'absolute',
-    bottom: 80, // Moved up to avoid chapter nav
+    bottom: 80,
     left: 20,
     right: 20,
-    backgroundColor: 'rgba(255,255,255,0.95)',
     borderRadius: 12,
     padding: 16,
     shadowColor: '#000',
@@ -576,11 +677,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
     borderWidth: 1,
-    borderColor: '#eee',
   },
   menuTitle: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 12,
     fontStyle: 'italic',
   },
@@ -595,14 +694,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  menuBtnPrimary: {
-    backgroundColor: '#007AFF',
-  },
-  menuBtnTextPrimary: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 16,
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -611,7 +702,6 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#fff',
     borderRadius: 16,
     width: '100%',
     maxHeight: '80%',
@@ -628,22 +718,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
   },
   closeBtn: {
     fontSize: 16,
-    color: '#007AFF',
     padding: 4,
+  },
+  saveBtn: {
+    fontSize: 16,
+    padding: 4,
+    fontWeight: '600',
   },
   imageContainer: {
     width: '100%',
     aspectRatio: 1,
-    backgroundColor: '#f9f9f9',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -658,28 +749,22 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#333',
     fontWeight: '500',
   },
   loadingSubText: {
     marginTop: 8,
     fontSize: 14,
-    color: '#999',
     textAlign: 'center',
   },
-  // Chapter Navigation
   chapterNavContainer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       padding: 10,
       borderTopWidth: 1,
-      borderTopColor: '#eee',
-      backgroundColor: '#fff',
   },
   navBtn: {
       padding: 10,
-      backgroundColor: '#f0f0f0',
       borderRadius: 8,
       minWidth: 80,
       alignItems: 'center',
@@ -688,14 +773,11 @@ const styles = StyleSheet.create({
       opacity: 0.5,
   },
   navBtnText: {
-      color: '#333',
       fontWeight: '600',
   },
   chapterInfo: {
       fontSize: 14,
-      color: '#666',
   },
-  // TOC Styles
   tocOverlay: {
       position: 'absolute',
       top: 0,
@@ -711,8 +793,7 @@ const styles = StyleSheet.create({
   },
   tocDrawer: {
       width: '80%',
-      backgroundColor: '#fff',
-      paddingTop: 50, // For status bar
+      paddingTop: 50,
       position: 'absolute',
       left: 0,
       top: 0,
@@ -728,7 +809,6 @@ const styles = StyleSheet.create({
       fontWeight: 'bold',
       padding: 20,
       borderBottomWidth: 1,
-      borderBottomColor: '#eee',
   },
   tocList: {
       paddingBottom: 20,
@@ -737,17 +817,58 @@ const styles = StyleSheet.create({
       paddingVertical: 15,
       paddingHorizontal: 20,
       borderBottomWidth: 1,
-      borderBottomColor: '#f5f5f5',
-  },
-  tocItemActive: {
-      backgroundColor: '#e6f2ff',
   },
   tocText: {
       fontSize: 16,
-      color: '#333',
   },
-  tocTextActive: {
-      color: '#007AFF',
+  settingsModal: {
+      width: '100%',
+      borderRadius: 16,
+      padding: 20,
+  },
+  settingRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20,
+  },
+  settingLabel: {
+      fontSize: 16,
       fontWeight: '600',
+  },
+  settingControls: {
+      flexDirection: 'row',
+      alignItems: 'center',
+  },
+  settingBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginHorizontal: 10,
+  },
+  settingValue: {
+      fontSize: 18,
+      minWidth: 30,
+      textAlign: 'center',
+  },
+  themeOptions: {
+      flexDirection: 'row',
+  },
+  themeOption: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginLeft: 10,
+      borderWidth: 1,
+      borderColor: '#ddd',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
   },
 });

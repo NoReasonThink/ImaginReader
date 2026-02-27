@@ -1,14 +1,14 @@
-# ImaginReader - Text-to-Image EPUB Reader
+# ImaginReader (绘读) - Text-to-Image EPUB Reader
 
-ImaginReader is a React Native application designed for reading EPUB books and generating images from selected text. It features a bookshelf for managing your library and a reader interface for a comfortable reading experience.
+ImaginReader (Chinese: 绘读) is an innovative React Native application that bridges the gap between text and imagination. It serves as a robust EPUB reader while empowering users to visualize scenes by generating images directly from selected text.
 
 ## Features
 
-- **Text-to-Image Generation**: Select text and generate visualizations.
-- **Bookshelf**: Organize and view your collection of books.
-- **EPUB Reader**: Read EPUB files with a custom parser and rendering engine.
-- **File Management**: Import books from your device using document picker.
-- **Cross-Platform**: Runs on both Android and iOS.
+- **AI-Powered Visualization**: Instantly generate vivid images from text selections using advanced AI models (Text-to-Image).
+- **Smart Bookshelf**: Seamlessly organize, manage, and view your digital library.
+- **Immersive EPUB Reader**: Enjoy a comfortable reading experience with a custom parsing and rendering engine.
+- **Easy File Management**: Effortlessly import books from your device using the system document picker.
+- **Cross-Platform**: Optimized performance and UI for both Android and iOS devices.
 
 ## Tech Stack
 

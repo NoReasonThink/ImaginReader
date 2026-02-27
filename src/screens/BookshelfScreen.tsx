@@ -22,6 +22,7 @@ import { RootStackParamList, Book } from '../types';
 import { MOCK_BOOKS } from '../data/mockBooks';
 import { EpubParser } from '../utils/EpubParser';
 import { SettingsService, ApiConfig } from '../services/SettingsService';
+import { useTheme, useLanguage } from '../contexts';
 
 const { width } = Dimensions.get('window');
 const COLUMN_COUNT = 3;
@@ -33,6 +34,9 @@ type BookshelfScreenNavigationProp = NativeStackNavigationProp<RootStackParamLis
 
 export default function BookshelfScreen() {
   const navigation = useNavigation<BookshelfScreenNavigationProp>();
+  const { theme, isDark } = useTheme();
+  const { t, language, setLanguage } = useLanguage();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [books, setBooks] = useState<Book[]>(MOCK_BOOKS);
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
@@ -64,7 +68,7 @@ export default function BookshelfScreen() {
   const saveSettings = async () => {
     await SettingsService.saveApiConfig(apiConfig);
     setIsSettingsVisible(false);
-    Alert.alert('Success', 'Settings saved successfully');
+    Alert.alert(t('save'), t('save') + ' ' + t('confirm'));
   };
 
   const loadBooks = async () => {
@@ -122,7 +126,7 @@ export default function BookshelfScreen() {
           await processImport(res);
         } catch (err) {
             console.error(err);
-            Alert.alert('Error', 'Failed to import file: ' + (err as Error).message);
+            Alert.alert(t('error'), 'Failed to import file: ' + (err as Error).message);
         } finally {
             setIsImporting(false);
         }
@@ -133,7 +137,7 @@ export default function BookshelfScreen() {
         // User cancelled
       } else {
         console.error(err);
-        Alert.alert('Error', 'Failed to pick file: ' + (err as Error).message);
+        Alert.alert(t('error'), 'Failed to pick file: ' + (err as Error).message);
       }
     }
   };
@@ -207,17 +211,14 @@ export default function BookshelfScreen() {
           };
         } catch (e) {
           console.error('EPUB Parse Error:', e);
-          Alert.alert('Error', 'Failed to parse EPUB file.');
+          Alert.alert(t('error'), 'Failed to parse EPUB file.');
           return;
         }
       } else if (isText) {
-        // For text files, we can just read it later or now.
-        // Let's keep existing logic but maybe optimize later.
         try {
           console.log('Reading text file from:', permanentPath);
           const fileContent = await RNFS.readFile(permanentPath, 'utf8');
           
-          // Minimal wrapper
           const content = `
             <!DOCTYPE html>
             <html><body><pre>${fileContent}</pre></body></html>
@@ -255,18 +256,18 @@ export default function BookshelfScreen() {
         const updatedBooks = [newBook!, ...books];
         setBooks(updatedBooks);
         saveBooksToStorage(updatedBooks);
-        Alert.alert('Success', `Imported "${newBook!.title}"`);
+        Alert.alert(t('save'), `Imported "${newBook!.title}"`);
       }
   };
 
   const handleDeleteBook = (bookId: string) => {
     Alert.alert(
-      "Delete Book",
-      "Are you sure you want to remove this book from your shelf?",
+      t('deleteBook'),
+      t('deleteBookConfirm'),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t('cancel'), style: "cancel" },
         { 
-          text: "Delete", 
+          text: t('confirm'), 
           style: "destructive", 
           onPress: async () => {
             const bookToDelete = books.find(b => b.id === bookId);
@@ -313,7 +314,12 @@ export default function BookshelfScreen() {
       }
   };
 
-  const renderBookItem = ({ item }: { item: Book }) => (
+  const renderBookItem = ({ item }: { item: Book }) => {
+    const progress = item.chapters && item.chapters.length > 0
+        ? Math.round(((item.lastChapterIndex || 0) + 1) / item.chapters.length * 100)
+        : 0;
+
+    return (
     <View style={styles.bookItemContainer}>
         <TouchableOpacity
         style={styles.bookItem}
@@ -323,44 +329,52 @@ export default function BookshelfScreen() {
         >
         <Image
             source={{ uri: item.coverUrl }}
-            style={styles.bookCover}
+            style={[styles.bookCover, { borderColor: theme.colors.border }]}
             resizeMode="cover"
         />
-        <Text style={styles.bookTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.bookAuthor} numberOfLines={1}>{item.author}</Text>
+        <Text style={[styles.bookTitle, { color: theme.colors.text }]} numberOfLines={2}>{item.title}</Text>
+        <Text style={[styles.bookAuthor, { color: theme.colors.textSecondary }]} numberOfLines={1}>{item.author}</Text>
+        {progress > 0 && (
+            <Text style={[styles.bookProgress, { color: theme.colors.primary }]}>{progress}%</Text>
+        )}
         </TouchableOpacity>
         
         {/* Edit Button */}
         <TouchableOpacity 
-            style={styles.editBadge}
+            style={[styles.editBadge, { backgroundColor: theme.colors.surface }]}
             onPress={() => openEditModal(item)}
         >
-            <Text style={styles.editBadgeText}>✎</Text>
+            <Text style={[styles.editBadgeText, { color: theme.colors.text }]}>✎</Text>
         </TouchableOpacity>
     </View>
-  );
+    );
+  };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={theme.colors.headerBackground} />
       
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>我的书架</Text>
+      <View style={[styles.header, { backgroundColor: theme.colors.headerBackground, borderBottomColor: theme.colors.border }]}>
+        <Text style={[styles.headerTitle, { color: theme.colors.headerText }]}>{t('myBooks')}</Text>
         <TouchableOpacity onPress={() => setIsSettingsVisible(true)} style={styles.settingsButton}>
-          <Text style={styles.settingsButtonText}>⚙️</Text>
+          <Text style={[styles.settingsButtonText, { color: theme.colors.primary }]}>⚙️</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={handleImportBook} style={styles.importButton}>
-          <Text style={styles.importButtonText}>+</Text>
+        <TouchableOpacity onPress={handleImportBook} style={[styles.importButton, { backgroundColor: theme.colors.primary }]}>
+          <Text style={[styles.importButtonText, { color: theme.colors.buttonPrimaryText }]}>+</Text>
         </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <TextInput
-          style={styles.searchInput}
-          placeholder="搜索书名或作者..."
-          placeholderTextColor="#999"
+          style={[styles.searchInput, { 
+              backgroundColor: theme.colors.inputBackground, 
+              color: theme.colors.inputText,
+              borderColor: theme.colors.inputBorder 
+          }]}
+          placeholder={t('myBooks') + "..."}
+          placeholderTextColor={theme.colors.inputPlaceholder}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
@@ -375,15 +389,19 @@ export default function BookshelfScreen() {
         contentContainerStyle={styles.listContent}
         columnWrapperStyle={styles.columnWrapper}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+            <View style={{ alignItems: 'center', marginTop: 50 }}>
+                <Text style={{ color: theme.colors.textSecondary }}>{t('emptyBookshelf')}</Text>
+            </View>
+        }
       />
 
       {/* Import Loading Overlay */}
       {isImporting && (
           <View style={styles.loadingOverlay}>
-              <View style={styles.loadingBox}>
-                  <ActivityIndicator size="large" color="#007AFF" />
-                  <Text style={styles.loadingText}>Importing book...</Text>
-                  <Text style={styles.loadingSubText}>This may take a moment</Text>
+              <View style={[styles.loadingBox, { backgroundColor: theme.colors.surface }]}>
+                  <ActivityIndicator size="large" color={theme.colors.primary} />
+                  <Text style={[styles.loadingText, { color: theme.colors.text }]}>{t('loading')}</Text>
               </View>
           </View>
       )}
@@ -396,47 +414,87 @@ export default function BookshelfScreen() {
         onRequestClose={() => setIsSettingsVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>API 配置</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>{t('settings')}</Text>
             
-            <Text style={styles.label}>API Key:</Text>
+            {/* Language Switcher */}
+            <Text style={[styles.label, { color: theme.colors.text }]}>{t('language')}:</Text>
+            <View style={{ flexDirection: 'row', marginBottom: 15 }}>
+                <TouchableOpacity 
+                    style={[
+                        styles.langBtn, 
+                        language === 'zh' && { backgroundColor: theme.colors.primary },
+                        language !== 'zh' && { backgroundColor: theme.colors.buttonSecondaryBackground }
+                    ]}
+                    onPress={() => setLanguage('zh')}
+                >
+                    <Text style={{ color: language === 'zh' ? '#fff' : theme.colors.text }}>中文</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[
+                        styles.langBtn, 
+                        language === 'en' && { backgroundColor: theme.colors.primary },
+                        language !== 'en' && { backgroundColor: theme.colors.buttonSecondaryBackground }
+                    ]}
+                    onPress={() => setLanguage('en')}
+                >
+                    <Text style={{ color: language === 'en' ? '#fff' : theme.colors.text }}>English</Text>
+                </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.label, { color: theme.colors.text }]}>{t('apiKey')}:</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { 
+                  backgroundColor: theme.colors.inputBackground,
+                  color: theme.colors.inputText,
+                  borderColor: theme.colors.inputBorder
+              }]}
               value={apiConfig.apiKey}
               onChangeText={(text) => setApiConfig({...apiConfig, apiKey: text})}
               placeholder="Enter API Key"
+              placeholderTextColor={theme.colors.inputPlaceholder}
               secureTextEntry
             />
             
-            <Text style={styles.label}>Model Code:</Text>
+            <Text style={[styles.label, { color: theme.colors.text }]}>{t('model')}:</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { 
+                  backgroundColor: theme.colors.inputBackground,
+                  color: theme.colors.inputText,
+                  borderColor: theme.colors.inputBorder
+              }]}
               value={apiConfig.modelCode}
               onChangeText={(text) => setApiConfig({...apiConfig, modelCode: text})}
               placeholder="e.g. wan2.6-t2i"
+              placeholderTextColor={theme.colors.inputPlaceholder}
             />
             
-            <Text style={styles.label}>API URL:</Text>
+            <Text style={[styles.label, { color: theme.colors.text }]}>{t('apiUrl')}:</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { 
+                  backgroundColor: theme.colors.inputBackground,
+                  color: theme.colors.inputText,
+                  borderColor: theme.colors.inputBorder
+              }]}
               value={apiConfig.apiUrl}
               onChangeText={(text) => setApiConfig({...apiConfig, apiUrl: text})}
               placeholder="Enter API URL"
+              placeholderTextColor={theme.colors.inputPlaceholder}
             />
 
             <View style={styles.modalButtons}>
               <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton]} 
+                style={[styles.modalButton, { backgroundColor: theme.colors.error }]} 
                 onPress={() => setIsSettingsVisible(false)}
               >
-                <Text style={styles.buttonText}>取消</Text>
+                <Text style={styles.buttonText}>{t('cancel')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={[styles.modalButton, styles.saveButton]} 
+                style={[styles.modalButton, { backgroundColor: theme.colors.success }]} 
                 onPress={saveSettings}
               >
-                <Text style={styles.buttonText}>保存</Text>
+                <Text style={styles.buttonText}>{t('save')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -451,15 +509,19 @@ export default function BookshelfScreen() {
         onRequestClose={() => setIsEditModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>书籍风格设置</Text>
-            <Text style={styles.label}>设置生成图画的提示词风格 (Style Prompt):</Text>
+          <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Style Prompt</Text>
             
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, styles.textArea, { 
+                  backgroundColor: theme.colors.inputBackground,
+                  color: theme.colors.inputText,
+                  borderColor: theme.colors.inputBorder
+              }]}
               value={stylePrompt}
               onChangeText={setStylePrompt}
-              placeholder="例如：水墨画风格，色彩淡雅..."
+              placeholder="e.g. Ink wash painting style..."
+              placeholderTextColor={theme.colors.inputPlaceholder}
               multiline={true}
               numberOfLines={4}
               textAlignVertical="top"
@@ -467,17 +529,17 @@ export default function BookshelfScreen() {
 
             <View style={styles.modalButtons}>
               <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton]} 
+                style={[styles.modalButton, { backgroundColor: theme.colors.error }]} 
                 onPress={() => setIsEditModalVisible(false)}
               >
-                <Text style={styles.buttonText}>取消</Text>
+                <Text style={styles.buttonText}>{t('cancel')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={[styles.modalButton, styles.saveButton]} 
+                style={[styles.modalButton, { backgroundColor: theme.colors.success }]} 
                 onPress={saveBookStyle}
               >
-                <Text style={styles.buttonText}>确定</Text>
+                <Text style={styles.buttonText}>{t('confirm')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -490,15 +552,12 @@ export default function BookshelfScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   header: {
     paddingTop: 60, // For status bar
     paddingBottom: 20,
     paddingHorizontal: 20,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -506,7 +565,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
   },
   settingsButton: {
     padding: 8,
@@ -518,27 +576,22 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
   importButtonText: {
     fontSize: 24,
-    color: '#fff',
     lineHeight: 26,
   },
   searchContainer: {
     padding: 15,
   },
   searchInput: {
-    backgroundColor: '#fff',
     borderRadius: 10,
     paddingHorizontal: 15,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#333',
     borderWidth: 1,
-    borderColor: '#ddd',
   },
   listContent: {
     paddingHorizontal: 15,
@@ -561,7 +614,7 @@ const styles = StyleSheet.create({
     width: ITEM_WIDTH,
     height: ITEM_WIDTH * 1.5,
     borderRadius: 6,
-    backgroundColor: '#ddd',
+    borderWidth: 1,
     marginBottom: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -572,20 +625,23 @@ const styles = StyleSheet.create({
   bookTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
     textAlign: 'center',
     marginBottom: 2,
   },
   bookAuthor: {
     fontSize: 12,
-    color: '#666',
+    textAlign: 'center',
+  },
+  bookProgress: {
+    fontSize: 10,
+    marginTop: 2,
+    fontWeight: '500',
     textAlign: 'center',
   },
   editBadge: {
       position: 'absolute',
       top: 5,
       right: 5,
-      backgroundColor: 'rgba(255,255,255,0.8)',
       width: 24,
       height: 24,
       borderRadius: 12,
@@ -599,7 +655,6 @@ const styles = StyleSheet.create({
   },
   editBadgeText: {
       fontSize: 14,
-      color: '#333',
       fontWeight: 'bold',
   },
   modalOverlay: {
@@ -609,7 +664,6 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
     elevation: 5,
@@ -619,22 +673,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
-    color: '#333',
   },
   label: {
     fontSize: 16,
     marginBottom: 5,
-    color: '#333',
     fontWeight: '500',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     padding: 10,
     marginBottom: 15,
     fontSize: 16,
-    color: '#333',
   },
   textArea: {
       height: 100,
@@ -650,12 +700,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     marginHorizontal: 5,
-  },
-  cancelButton: {
-    backgroundColor: '#ff3b30',
-  },
-  saveButton: {
-    backgroundColor: '#34c759',
   },
   buttonText: {
     color: '#fff',
@@ -675,7 +719,6 @@ const styles = StyleSheet.create({
       zIndex: 999,
   },
   loadingBox: {
-      backgroundColor: '#fff',
       padding: 20,
       borderRadius: 12,
       alignItems: 'center',
@@ -685,11 +728,11 @@ const styles = StyleSheet.create({
       marginTop: 10,
       fontSize: 16,
       fontWeight: '600',
-      color: '#333',
   },
-  loadingSubText: {
-      marginTop: 5,
-      fontSize: 14,
-      color: '#666',
+  langBtn: {
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: 20,
+      marginRight: 10,
   }
 });
