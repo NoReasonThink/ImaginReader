@@ -1,9 +1,10 @@
-# MyFirstApp - React Native EPUB Reader
+# ImaginReader - Text-to-Image EPUB Reader
 
-MyFirstApp is a React Native application designed for reading EPUB books. It features a bookshelf for managing your library and a reader interface for a comfortable reading experience.
+ImaginReader is a React Native application designed for reading EPUB books and generating images from selected text. It features a bookshelf for managing your library and a reader interface for a comfortable reading experience.
 
 ## Features
 
+- **Text-to-Image Generation**: Select text and generate visualizations.
 - **Bookshelf**: Organize and view your collection of books.
 - **EPUB Reader**: Read EPUB files with a custom parser and rendering engine.
 - **File Management**: Import books from your device using document picker.
