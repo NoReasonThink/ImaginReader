@@ -1,0 +1,22 @@
+# Project Rules & Best Practices
+
+## Android Build & Troubleshooting
+
+### Memory Configuration
+- For React Native projects with New Architecture enabled, ensure Gradle has sufficient memory.
+- In `android/gradle.properties`, set:
+  `org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m`
+
+### C++ / Ninja Build Failures
+- If you encounter C++ compilation errors (e.g., `ninja: error`, `CMake Error`), DO NOT retry immediately.
+- Perform a full clean build using the following steps:
+  1. Stop the Gradle daemon:
+     `cd android && ./gradlew --stop`
+  2. Remove build artifacts (force delete):
+     - `android/.cxx`
+     - `android/app/build`
+     - `android/build`
+  3. Re-run the build command.
+
+### Windows-Specific
+- File locking is common on Windows. If `clean` fails, stop the daemon first.
