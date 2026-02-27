@@ -50,7 +50,10 @@ export default function BookshelfScreen() {
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
     apiKey: '',
     modelCode: '',
-    apiUrl: ''
+    apiUrl: '',
+    videoApiKey: '',
+    videoModelCode: '',
+    videoApiUrl: ''
   });
 
   useFocusEffect(
@@ -357,12 +360,14 @@ export default function BookshelfScreen() {
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.headerBackground, borderBottomColor: theme.colors.border }]}>
         <Text style={[styles.headerTitle, { color: theme.colors.headerText }]}>{t('myBooks')}</Text>
-        <TouchableOpacity onPress={() => setIsSettingsVisible(true)} style={styles.settingsButton}>
-          <Text style={[styles.settingsButtonText, { color: theme.colors.primary }]}>⚙️</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleImportBook} style={[styles.importButton, { backgroundColor: theme.colors.primary }]}>
-          <Text style={[styles.importButtonText, { color: theme.colors.buttonPrimaryText }]}>+</Text>
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+            <TouchableOpacity onPress={() => setIsSettingsVisible(true)} style={styles.settingsButton}>
+                <Text style={[styles.settingsButtonText, { color: theme.colors.primary }]}>⚙️</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleImportBook} style={[styles.importButton, { backgroundColor: theme.colors.primary }]}>
+                <Text style={[styles.importButtonText, { color: theme.colors.buttonPrimaryText }]}>+</Text>
+            </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search Bar */}
@@ -441,7 +446,7 @@ export default function BookshelfScreen() {
                     <Text style={{ color: language === 'en' ? '#fff' : theme.colors.text }}>English</Text>
                 </TouchableOpacity>
             </View>
-
+       
             <Text style={[styles.label, { color: theme.colors.text }]}>{t('apiKey')}:</Text>
             <TextInput
               style={[styles.input, { 
@@ -451,7 +456,7 @@ export default function BookshelfScreen() {
               }]}
               value={apiConfig.apiKey}
               onChangeText={(text) => setApiConfig({...apiConfig, apiKey: text})}
-              placeholder="Enter API Key"
+              placeholder={t('apiKey') || "Enter API Key"}
               placeholderTextColor={theme.colors.inputPlaceholder}
               secureTextEntry
             />
@@ -478,7 +483,49 @@ export default function BookshelfScreen() {
               }]}
               value={apiConfig.apiUrl}
               onChangeText={(text) => setApiConfig({...apiConfig, apiUrl: text})}
-              placeholder="Enter API URL"
+              placeholder={t('apiUrl') || "Enter API URL"}
+              placeholderTextColor={theme.colors.inputPlaceholder}
+            />
+
+
+
+            <Text style={[styles.label, { color: theme.colors.text }]}>{t('videoApiKey')}:</Text>
+            <TextInput
+              style={[styles.input, { 
+                  backgroundColor: theme.colors.inputBackground,
+                  color: theme.colors.inputText,
+                  borderColor: theme.colors.inputBorder
+              }]}
+              value={apiConfig.videoApiKey}
+              onChangeText={(text) => setApiConfig({...apiConfig, videoApiKey: text})}
+              placeholder={t('videoApiKeyPlaceholder') || "Same as Image API Key if empty"}
+              placeholderTextColor={theme.colors.inputPlaceholder}
+              secureTextEntry
+            />
+
+            <Text style={[styles.label, { color: theme.colors.text }]}>{t('videoModel')}:</Text>
+            <TextInput
+              style={[styles.input, { 
+                  backgroundColor: theme.colors.inputBackground,
+                  color: theme.colors.inputText,
+                  borderColor: theme.colors.inputBorder
+              }]}
+              value={apiConfig.videoModelCode}
+              onChangeText={(text) => setApiConfig({...apiConfig, videoModelCode: text})}
+              placeholder="e.g. wan2.1-t2v-turbo"
+              placeholderTextColor={theme.colors.inputPlaceholder}
+            />
+
+            <Text style={[styles.label, { color: theme.colors.text }]}>{t('videoApiUrl')}:</Text>
+            <TextInput
+              style={[styles.input, { 
+                  backgroundColor: theme.colors.inputBackground,
+                  color: theme.colors.inputText,
+                  borderColor: theme.colors.inputBorder
+              }]}
+              value={apiConfig.videoApiUrl}
+              onChangeText={(text) => setApiConfig({...apiConfig, videoApiUrl: text})}
+              placeholder={t('videoApiUrl') || "Enter Video API URL"}
               placeholderTextColor={theme.colors.inputPlaceholder}
             />
 
@@ -566,8 +613,13 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
   },
+  headerButtons: {
+      flexDirection: 'row',
+      alignItems: 'center',
+  },
   settingsButton: {
     padding: 8,
+    marginRight: 10,
   },
   settingsButtonText: {
     fontSize: 24,

@@ -5,7 +5,15 @@ export default {
   cancel: '取消',
   confirm: '确认',
   save: '保存',
+  share: '分享',
   close: '关闭',
+  success:'成功',
+  expand: '展开',
+  collapse: '收起',
+  play: '播放',
+  view: '查看',
+  generatedMedia: '生成媒体库',
+  emptyMedia: '暂无生成的媒体文件。',
   
   // Navigation
   home: '书架',
@@ -28,7 +36,8 @@ export default {
   theme: '主题',
   
   // Menu
-  generateImage: '生成图画',
+  generateImage: '生成图片',
+  generateVideo: '生成视频',
   generationResult: '生成结果',
   generating: '正在根据文字生成画面...',
   generationFailed: '生成失败',
@@ -41,6 +50,12 @@ export default {
   apiKey: 'API Key',
   model: '模型',
   apiUrl: 'API URL',
+  imageGeneration: '图片生成',
+  videoGeneration: '视频生成',
+  videoApiKey: '视频 API Key (可选)',
+  videoApiKeyPlaceholder: '若为空则使用通用 API Key',
+  videoModel: '视频模型',
+  videoApiUrl: '视频 API URL',
   
   // Themes
   light: '明亮',

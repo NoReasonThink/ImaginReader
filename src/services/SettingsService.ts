@@ -4,6 +4,9 @@ export interface ApiConfig {
   apiKey: string;
   modelCode: string;
   apiUrl: string;
+  videoApiKey: string;
+  videoModelCode: string;
+  videoApiUrl: string;
 }
 
 const SETTINGS_STORAGE_KEY = '@app_settings';
@@ -12,6 +15,9 @@ const DEFAULT_CONFIG: ApiConfig = {
   apiKey: '',
   modelCode: 'wan2.6-t2i',
   apiUrl: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+  videoApiKey: '',
+  videoModelCode: 'wan2.1-t2v-turbo',
+  videoApiUrl: 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis',
 };
 
 export const SettingsService = {

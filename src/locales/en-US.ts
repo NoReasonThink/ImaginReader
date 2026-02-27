@@ -5,7 +5,15 @@ export default {
   cancel: 'Cancel',
   confirm: 'Confirm',
   save: 'Save',
+  share: 'Share',
   close: 'Close',
+  success:'Success',
+  expand: 'Expand',
+  collapse: 'Collapse',
+  play: 'Play',
+  view: 'View',
+  generatedMedia: 'Generated Media',
+  emptyMedia: 'No generated media yet.',
   
   // Navigation
   home: 'Bookshelf',
@@ -29,6 +37,7 @@ export default {
   
   // Menu
   generateImage: 'Generate Image',
+  generateVideo: 'Generate Video',
   generationResult: 'Generated Image',
   generating: 'Generating image from text...',
   generationFailed: 'Generation Failed',
@@ -41,6 +50,12 @@ export default {
   apiKey: 'API Key',
   model: 'Model',
   apiUrl: 'API URL',
+  imageGeneration: 'Image Generation',
+  videoGeneration: 'Video Generation',
+  videoApiKey: 'Video API Key (Optional)',
+  videoApiKeyPlaceholder: 'Same as Image API Key if empty',
+  videoModel: 'Video Model',
+  videoApiUrl: 'Video API URL',
   
   // Themes
   light: 'Light',

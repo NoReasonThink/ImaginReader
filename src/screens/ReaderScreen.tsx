@@ -18,11 +18,15 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import RNFS from 'react-native-fs';
+import Share from 'react-native-share';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import { RootStackParamList, Book, Chapter } from '../types';
 import { MOCK_BOOKS } from '../data/mockBooks';
 import { generateImageFromText } from '../services/ImageGenerationService';
+import { VideoGenerationService } from '../services/VideoGenerationService';
+import { MediaHistoryService } from '../services/MediaHistoryService';
+import { MediaListModal } from '../components/MediaListModal';
 import { EpubParser } from '../utils/EpubParser';
 import { useTheme, useLanguage } from '../contexts';
 import { ThemeType } from '../themes';
@@ -60,6 +64,11 @@ export default function ReaderScreen() {
 
   // Settings Modal
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+  const [isMediaListVisible, setIsMediaListVisible] = useState(false);
+
+  useEffect(() => {
+    VideoGenerationService.resumePendingTasks();
+  }, []);
 
   useEffect(() => {
     const loadContent = async () => {
@@ -250,12 +259,42 @@ export default function ReaderScreen() {
       
       const url = await generateImageFromText(prompt);
       setGeneratedImageUrl(url);
+
+      await MediaHistoryService.addItem({
+        type: 'image',
+        prompt: prompt,
+        url: url,
+        status: 'completed'
+      });
     } catch (error: any) {
       console.error('Generation error:', error);
       Alert.alert(t('generationFailed'), error.message || t('error'));
       setIsImageModalVisible(false);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleGenerateVideo = async () => {
+    if (!selectedText) return;
+    
+    setIsMenuVisible(false);
+    
+    try {
+      let prompt = selectedText;
+      if (currentBook?.stylePrompt) {
+          prompt = `${currentBook.stylePrompt}\n\n${selectedText}`;
+      }
+      
+      await VideoGenerationService.generateVideo(prompt);
+      
+      Alert.alert(t('success') || 'Success', "Video generation started. Please check the Generated Media list.", [
+          { text: 'View List', onPress: () => setIsMediaListVisible(true) },
+          { text: 'OK' }
+      ]);
+    } catch (error: any) {
+      console.error('Video generation error:', error);
+      Alert.alert(t('error') || 'Error', error.message || t('generationFailed'));
     }
   };
 
@@ -299,6 +338,30 @@ export default function ReaderScreen() {
         console.error(error);
         Alert.alert(t('error'), error.message);
     }
+  };
+
+  const handleShareImage = async () => {
+      if (!generatedImageUrl) return;
+      try {
+          const timestamp = new Date().getTime();
+          const destPath = `${RNFS.CachesDirectoryPath}/share_${timestamp}.png`;
+          const options = { fromUrl: generatedImageUrl, toFile: destPath };
+          const result = await RNFS.downloadFile(options).promise;
+          
+          if (result.statusCode === 200) {
+              await Share.open({
+                  url: `file://${destPath}`,
+                  type: 'image/png',
+                  title: 'Share Image',
+                  failOnCancel: false,
+              });
+          }
+      } catch (error: any) {
+          console.log('Share error:', error);
+          if (error.message !== 'User did not share') {
+              Alert.alert(t('error'), error.message);
+          }
+      }
   };
 
   const toggleTOC = () => {
@@ -350,6 +413,9 @@ export default function ReaderScreen() {
       ),
       headerRight: () => (
         <View style={styles.headerRight}>
+          <TouchableOpacity onPress={() => setIsMediaListVisible(true)} style={styles.fontBtn}>
+            <Text style={{ fontSize: 20 }}>🖼️</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => setIsSettingsVisible(true)} style={styles.fontBtn}>
             <Text style={{ fontSize: 20, color: theme.colors.primary }}>Aa</Text>
           </TouchableOpacity>
@@ -581,8 +647,11 @@ export default function ReaderScreen() {
         <View style={[styles.menuContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
           <Text style={[styles.menuTitle, { color: theme.colors.textSecondary }]} numberOfLines={1}>Selected: {selectedText}</Text>
           <View style={styles.menuButtons}>
-            <TouchableOpacity style={[styles.menuBtn, { backgroundColor: theme.colors.primary }]} onPress={handleGenerateImage}>
+            <TouchableOpacity style={[styles.menuBtn, { backgroundColor: theme.colors.primary, marginRight: 5 }]} onPress={handleGenerateImage}>
               <Text style={{ color: theme.colors.buttonPrimaryText, fontWeight: '600' }}>{t('generateImage')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.menuBtn, { backgroundColor: theme.colors.primary, marginLeft: 5 }]} onPress={handleGenerateVideo}>
+              <Text style={{ color: theme.colors.buttonPrimaryText, fontWeight: '600' }}>{t('generateVideo')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -605,9 +674,14 @@ export default function ReaderScreen() {
                     </TouchableOpacity>
                     <Text style={[styles.modalTitle, { color: theme.colors.text }]}>{t('generationResult')}</Text>
                     {generatedImageUrl ? (
-                        <TouchableOpacity onPress={handleSaveImage}>
-                            <Text style={[styles.saveBtn, { color: theme.colors.success }]}>{t('save')}</Text>
-                        </TouchableOpacity>
+                        <View style={{flexDirection: 'row'}}>
+                            <TouchableOpacity onPress={handleSaveImage} style={{marginRight: 15}}>
+                                <Text style={[styles.saveBtn, { color: theme.colors.success }]}>{t('save')}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handleShareImage}>
+                                <Text style={[styles.saveBtn, { color: theme.colors.primary }]}>{t('share') || 'Share'}</Text>
+                            </TouchableOpacity>
+                        </View>
                     ) : (
                         <View style={{width: 40}} /> 
                     )}
@@ -638,6 +712,10 @@ export default function ReaderScreen() {
             </View>
         </TouchableWithoutFeedback>
       </Modal>
+      <MediaListModal 
+        visible={isMediaListVisible} 
+        onClose={() => setIsMediaListVisible(false)} 
+      />
     </View>
   );
 }

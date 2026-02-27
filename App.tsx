@@ -6,11 +6,16 @@ import BookshelfScreen from './src/screens/BookshelfScreen';
 import ReaderScreen from './src/screens/ReaderScreen';
 import { RootStackParamList } from './src/types';
 import { ThemeProvider, LanguageProvider, useTheme } from './src/contexts';
+import { VideoGenerationService } from './src/services/VideoGenerationService';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const AppContent = () => {
   const { theme, isDark } = useTheme();
+
+  React.useEffect(() => {
+    VideoGenerationService.resumePendingTasks();
+  }, []);
 
   const navigationTheme = {
     dark: isDark,
