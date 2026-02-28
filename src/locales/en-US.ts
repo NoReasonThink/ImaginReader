@@ -7,11 +7,13 @@ export default {
   save: 'Save',
   share: 'Share',
   close: 'Close',
-  success:'Success',
+  ok: 'OK',
+  success: 'Success',
   expand: 'Expand',
   collapse: 'Collapse',
   play: 'Play',
   view: 'View',
+  viewList: 'View List',
   generatedMedia: 'Generated Media',
   emptyMedia: 'No generated media yet.',
   delete: 'Delete',
@@ -42,6 +44,7 @@ export default {
   generateVideo: 'Generate Video',
   generationResult: 'Generated Image',
   generating: 'Generating image from text...',
+  videoGenerationStarted: 'Video generation started. Please check the Generated Media list.',
   generationFailed: 'Generation Failed',
   
   // Settings

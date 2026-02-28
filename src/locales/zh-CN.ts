@@ -7,11 +7,13 @@ export default {
   save: '保存',
   share: '分享',
   close: '关闭',
-  success:'成功',
+  ok: '确定',
+  success: '成功',
   expand: '展开',
   collapse: '收起',
   play: '播放',
   view: '查看',
+  viewList: '查看列表',
   generatedMedia: '生成媒体库',
   emptyMedia: '暂无生成的媒体文件。',
   delete: '删除',
@@ -42,6 +44,7 @@ export default {
   generateVideo: '生成视频',
   generationResult: '生成结果',
   generating: '正在根据文字生成画面...',
+  videoGenerationStarted: '视频生成已开始。请检查生成媒体库。',
   generationFailed: '生成失败',
   
   // Settings

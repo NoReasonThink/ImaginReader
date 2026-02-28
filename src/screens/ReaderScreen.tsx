@@ -288,9 +288,9 @@ export default function ReaderScreen() {
       
       await VideoGenerationService.generateVideo(prompt);
       
-      Alert.alert(t('success') || 'Success', "Video generation started. Please check the Generated Media list.", [
-          { text: 'View List', onPress: () => setIsMediaListVisible(true) },
-          { text: 'OK' }
+      Alert.alert(t('success'), t('videoGenerationStarted'), [
+          { text: t('viewList'), onPress: () => setIsMediaListVisible(true) },
+          { text: t('ok') }
       ]);
     } catch (error: any) {
       console.error('Video generation error:', error);
