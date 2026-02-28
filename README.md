@@ -31,8 +31,8 @@ ImaginReader (Chinese: 绘读) is an innovative React Native application that br
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/NoReasonThink/MyFirstApp.git
-    cd MyFirstApp
+    git clone https://github.com/NoReasonThink/ImaginReader.git
+    cd ImaginReader
     ```
 
 2.  Install dependencies:

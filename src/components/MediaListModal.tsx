@@ -35,7 +35,7 @@ const MediaListItem = ({
 }: { 
   item: MediaItem, 
   theme: any, 
-  t: (key: string) => string,
+  t: (key: any) => string,
   onPlay: (item: MediaItem) => void,
   onView: (item: MediaItem) => void,
   onSave: (item: MediaItem) => void,
@@ -112,7 +112,7 @@ const MediaListItem = ({
                     </>
                 )}
                 <TouchableOpacity style={styles.actionBtn} onPress={() => onDelete(item.id)}>
-                    <Text style={{ color: theme.colors.error }}>{t('deleteBook') || 'Delete'}</Text>
+                    <Text style={{ color: theme.colors.error }}>{t('delete') || 'Delete'}</Text>
                 </TouchableOpacity>
             </View>
         </View>
@@ -210,8 +210,8 @@ export const MediaListModal: React.FC<MediaListModalProps> = ({ visible, onClose
 
   const handleDelete = async (id: string) => {
     Alert.alert(
-      t('deleteBook') || 'Delete',
-      t('deleteBookConfirm') || 'Are you sure?',
+      t('delete') || 'Delete',
+      t('deleteConfirm') || 'Are you sure?',
       [
         { text: t('cancel'), style: 'cancel' },
         { 
