@@ -72,7 +72,7 @@ export const generateImageFromText = async (text: string): Promise<string> => {
     // 兼容旧的或异步返回 (如果有 task_id)
     if (submitData.output && submitData.output.task_id) {
        console.log(`Async task started. Task ID: ${submitData.output.task_id}`);
-       return await pollTaskResult(submitData.output.task_id);
+       return await pollTaskResult(submitData.output.task_id, DASHSCOPE_API_KEY);
     }
     
     // 尝试读取 output.results (Wan 2.5 风格)
@@ -91,7 +91,7 @@ export const generateImageFromText = async (text: string): Promise<string> => {
 };
 
 // 轮询任务结果
-const pollTaskResult = async (taskId: string): Promise<string> => {
+const pollTaskResult = async (taskId: string, apiKey: string): Promise<string> => {
   const maxRetries = 30; // 最大轮询次数 (30 * 2s = 60s timeout)
   const interval = 2000; // 2秒轮询一次
 
@@ -103,7 +103,7 @@ const pollTaskResult = async (taskId: string): Promise<string> => {
       {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
+          'Authorization': `Bearer ${apiKey}`,
         },
       }
     );
