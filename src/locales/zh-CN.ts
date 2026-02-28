@@ -14,6 +14,8 @@ export default {
   view: '查看',
   generatedMedia: '生成媒体库',
   emptyMedia: '暂无生成的媒体文件。',
+  delete: '删除',
+  deleteConfirm: '确定要删除此文件吗？',
   
   // Navigation
   home: '书架',

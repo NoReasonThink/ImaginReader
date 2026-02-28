@@ -14,6 +14,8 @@ export default {
   view: 'View',
   generatedMedia: 'Generated Media',
   emptyMedia: 'No generated media yet.',
+  delete: 'Delete',
+  deleteConfirm: 'Are you sure you want to delete this media?',
   
   // Navigation
   home: 'Bookshelf',
