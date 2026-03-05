@@ -38,6 +38,9 @@ export default {
   toc: '目录',
   fontSize: '字体大小',
   theme: '主题',
+  readingMode: '翻页模式',
+  scrollMode: '滚动',
+  slideMode: '滑动',
   
   // Menu
   generateImage: '生成图片',

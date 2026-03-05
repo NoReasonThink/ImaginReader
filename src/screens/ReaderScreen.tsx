@@ -38,6 +38,7 @@ type ReaderScreenRouteProp = RouteProp<RootStackParamList, 'Reader'>;
 
 const BOOKS_STORAGE_KEY = '@my_books';
 const { width, height } = Dimensions.get('window');
+const READER_SETTINGS_KEY = '@reader_settings';
 
 export default function ReaderScreen() {
   const route = useRoute<ReaderScreenRouteProp>();
@@ -46,6 +47,7 @@ export default function ReaderScreen() {
   const { theme, setTheme, themeType } = useTheme();
   const { t } = useLanguage();
   
+  const [readingMode, setReadingMode] = useState<'scroll' | 'slide'>('scroll');
   const [currentBook, setCurrentBook] = useState<Book | null>(null);
   const [isLoadingContent, setIsLoadingContent] = useState(true);
   const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
@@ -203,13 +205,22 @@ export default function ReaderScreen() {
       }
   };
 
-  const changeChapter = async (newIndex: number) => {
+  const changeChapter = async (newIndex: number, startAtEnd = false) => {
       if (!currentBook || !currentBook.chapters) return;
       if (newIndex < 0 || newIndex >= currentBook.chapters.length) return;
       
       setIsLoadingContent(true);
       setCurrentChapterIndex(newIndex);
-      lastScrollYRef.current = 0; // Reset scroll for new chapter
+      
+      // If we are navigating to previous chapter, we might want to start at the end
+      if (startAtEnd) {
+           // We need to wait for content to load to know the height/width, 
+           // but we can set a flag or handle this in the webview load
+           lastScrollYRef.current = -1; // Special flag for "end"
+      } else {
+           lastScrollYRef.current = 0;
+      }
+      
       await loadChapter(currentBook, newIndex);
       setIsLoadingContent(false);
   };
@@ -274,6 +285,12 @@ export default function ReaderScreen() {
   const increaseFontSize = () => setFontSize(prev => Math.min(prev + 2, 40));
   const decreaseFontSize = () => setFontSize(prev => Math.max(prev - 2, 12));
 
+  const handleSetReadingMode = (mode: 'scroll' | 'slide') => {
+      setReadingMode(mode);
+      lastScrollYRef.current = 0; // Reset scroll
+      AsyncStorage.mergeItem(READER_SETTINGS_KEY, JSON.stringify({ readingMode: mode }));
+  };
+
   const handleWebViewMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
@@ -290,6 +307,17 @@ export default function ReaderScreen() {
         lastScrollYRef.current = data.scrollY;
       } else if (data.type === 'toggleControls') {
         toggleControls();
+      } else if (data.type === 'nextChapter') {
+        if (currentBook && currentBook.chapters && currentChapterIndex < currentBook.chapters.length - 1) {
+             changeChapter(currentChapterIndex + 1);
+        } else {
+             // Maybe show a toast that this is the last chapter?
+             // For now, do nothing as per standard behavior
+        }
+      } else if (data.type === 'prevChapter') {
+        if (currentBook && currentBook.chapters && currentChapterIndex > 0) {
+             changeChapter(currentChapterIndex - 1, true); // true = start at end
+        }
       }
     } catch (e) {}
   };
@@ -525,17 +553,67 @@ export default function ReaderScreen() {
   const injectedJS = useMemo(() => `
     let lastKnownScrollPosition = 0;
     let ticking = false;
+    
+    function getScrollPos() {
+        return (window.readingMode === 'slide') ? window.scrollX : window.scrollY;
+    }
+
+    // Custom smooth scroll for faster animation
+    function smoothScrollTo(targetX, duration) {
+        const startX = window.scrollX;
+        const distance = targetX - startX;
+        let startTime = null;
+
+        function step(timestamp) {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Ease out cubic
+            const ease = 1 - Math.pow(1 - progress, 3);
+            
+            window.scrollTo(startX + (distance * ease), 0);
+
+            if (progress < 1) {
+                requestAnimationFrame(step);
+            }
+        }
+        
+        requestAnimationFrame(step);
+    }
+    
+    function smoothScrollBy(amount, duration) {
+        smoothScrollTo(window.scrollX + amount, duration);
+    }
+    
+    // Snap to nearest page after scroll ends (for manual swipe)
+    let isScrolling = null;
     window.addEventListener('scroll', function(e) {
-      lastKnownScrollPosition = window.scrollY;
+      lastKnownScrollPosition = getScrollPos();
+      
       if (!ticking) {
         window.requestAnimationFrame(function() {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'scroll',
-            scrollY: lastKnownScrollPosition
+            scrollY: (window.readingMode === 'slide') ? window.scrollX : window.scrollY
           }));
           ticking = false;
         });
         ticking = true;
+      }
+      
+      if (window.readingMode === 'slide') {
+          window.clearTimeout(isScrolling);
+          isScrolling = setTimeout(function() {
+              const width = window.innerWidth;
+              const scrollX = window.scrollX;
+              const pageIndex = Math.round(scrollX / width);
+              const targetScrollX = pageIndex * width;
+              
+              if (Math.abs(scrollX - targetScrollX) > 5) { // Only snap if not already aligned
+                  smoothScrollTo(targetScrollX, 200);
+              }
+          }, 100); // Wait 100ms after scroll stops to snap
       }
     });
 
@@ -552,15 +630,86 @@ export default function ReaderScreen() {
     });
     
     // Detect taps (simple click detection without selection)
+    let touchStartX = 0;
+    let touchStartY = 0;
+    
+    document.addEventListener('touchstart', function(e) {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+    }, {passive: true});
+    
+    document.addEventListener('touchend', function(e) {
+        const touchEndX = e.changedTouches[0].screenX;
+        const touchEndY = e.changedTouches[0].screenY;
+        const diffX = touchStartX - touchEndX;
+        const diffY = touchStartY - touchEndY; // Positive if swipe up (scroll down)
+        
+        if (window.readingMode === 'slide') {
+            const width = window.innerWidth;
+            const maxScroll = document.documentElement.scrollWidth - width;
+            
+            // If at the end and swipe left (next)
+            if (window.scrollX >= maxScroll - 5) {
+                if (diffX > 50 && Math.abs(diffY) < 100) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
+                }
+            }
+            // If at the start and swipe right (prev)
+            else if (window.scrollX <= 5) {
+                if (diffX < -50 && Math.abs(diffY) < 100) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
+                }
+            }
+        } else {
+            // Scroll mode
+            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+            // If at the bottom and swipe up (scroll down intent)
+            if (window.scrollY >= maxScroll - 5) {
+                if (diffY > 50 && Math.abs(diffX) < 100) {
+                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
+                }
+            }
+            // If at the top and swipe down (scroll up intent)
+            else if (window.scrollY <= 5) {
+                if (diffY < -50 && Math.abs(diffX) < 100) {
+                     window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
+                }
+            }
+        }
+    }, {passive: true});
+
     document.addEventListener('click', function(e) {
         // Ignore clicks if selection is happening or menu is open
         const selection = window.getSelection().toString();
         if (selection.length > 0) return;
         
-        // Post message to toggle controls
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'toggleControls'
-        }));
+        if (window.readingMode === 'slide') {
+            const width = window.innerWidth;
+            const x = e.clientX;
+            // 30% zones for prev/next
+            if (x < width * 0.3) {
+                if (window.scrollX <= 5) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'prevChapter' }));
+                } else {
+                    smoothScrollBy(-width, 200);
+                }
+            } else if (x > width * 0.7) {
+                const maxScroll = document.documentElement.scrollWidth - width;
+                if (window.scrollX >= maxScroll - 5) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'nextChapter' }));
+                } else {
+                    smoothScrollBy(width, 200);
+                }
+            } else {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'toggleControls'
+                }));
+            }
+        } else {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'toggleControls'
+            }));
+        }
     });
     
     // Disable default context menu
@@ -581,15 +730,35 @@ export default function ReaderScreen() {
         body {
           font-size: ${fontSize}px;
           line-height: 1.6;
-          padding: 20px;
-          padding-top: 60px; /* Add padding for status bar/header */
-          padding-bottom: 80px; /* Add padding for footer */
           color: ${theme.colors.readerText};
           font-family: ${theme.typography.fontFamily};
           background-color: ${theme.colors.readerBackground};
           max-width: 100vw;
-          overflow-x: hidden;
           word-wrap: break-word;
+          
+          ${readingMode === 'slide' ? `
+            margin: 0;
+            padding: 20px 20px !important;
+            height: calc(100vh - 40px); /* Adjust for padding */
+            width: calc(100vw - 40px);
+            overflow-y: hidden;
+            overflow-x: scroll;
+            column-width: calc(100vw - 40px);
+            column-gap: 40px;
+            column-fill: auto;
+            /* Hide scrollbar */
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          ` : `
+            padding: 20px;
+            padding-top: 60px;
+            padding-bottom: 80px;
+            overflow-x: hidden;
+          `}
+        }
+        /* Hide scrollbar for Chrome/Safari */
+        body::-webkit-scrollbar {
+          display: none;
         }
         img { max-width: 100%; height: auto; display: block; margin: 10px auto; }
         pre { white-space: pre-wrap; font-family: inherit; }
@@ -597,27 +766,54 @@ export default function ReaderScreen() {
       </style>
     </head>
     <body>
-      ${chapterContent}
+      <div id="content">${chapterContent}</div>
       <script>
+        window.readingMode = '${readingMode}';
         window.onload = function() {
           setTimeout(function() {
-            window.scrollTo(0, ${lastScrollYRef.current || 0});
+             if (${lastScrollYRef.current} === -1) {
+                 // Scroll to end
+                 if (window.readingMode === 'slide') {
+                     window.scrollTo(document.body.scrollWidth, 0);
+                 } else {
+                     window.scrollTo(0, document.body.scrollHeight);
+                 }
+             } else {
+                 if (window.readingMode === 'scroll') {
+                    window.scrollTo(0, ${lastScrollYRef.current || 0});
+                 } else {
+                    window.scrollTo(${lastScrollYRef.current || 0}, 0);
+                 }
+             }
           }, 100);
         };
       </script>
     </body>
     </html>
-  `, [chapterContent, fontSize, theme]);
+  `, [chapterContent, fontSize, theme, readingMode]);
 
   const handleWebViewLoad = useCallback(() => {
     // Restore scroll position after content load
     if (webviewRef.current) {
         webviewRef.current.injectJavaScript(`
-            window.scrollTo(0, ${lastScrollYRef.current || 0});
+            if (${lastScrollYRef.current} === -1) {
+                // Scroll to end
+                if (window.readingMode === 'slide') {
+                    window.scrollTo(document.body.scrollWidth, 0);
+                } else {
+                    window.scrollTo(0, document.body.scrollHeight);
+                }
+            } else {
+                if (window.readingMode === 'scroll') {
+                    window.scrollTo(0, ${lastScrollYRef.current || 0});
+                } else {
+                    window.scrollTo(${lastScrollYRef.current || 0}, 0);
+                }
+            }
             true;
         `);
     }
-  }, []);
+  }, [readingMode]);
 
   if (isLoadingContent) {
     return (
@@ -647,6 +843,7 @@ export default function ReaderScreen() {
         source={{ html: htmlContent, baseUrl: '' }}
         style={[styles.webview, { backgroundColor: theme.colors.readerBackground }]}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         injectedJavaScript={injectedJS}
@@ -727,6 +924,31 @@ export default function ReaderScreen() {
             <View style={styles.modalOverlay}>
                 <TouchableWithoutFeedback>
                     <View style={[styles.settingsModal, { backgroundColor: theme.colors.surface }]}>
+                        <View style={styles.settingRow}>
+                            <Text style={[styles.settingLabel, { color: theme.colors.text }]}>{t('readingMode')}</Text>
+                            <View style={styles.themeOptions}>
+                                <TouchableOpacity 
+                                    style={[
+                                        styles.themeOption, 
+                                        { width: 80, borderRadius: 15 },
+                                        readingMode === 'scroll' && { borderWidth: 2, borderColor: theme.colors.primary }
+                                    ]}
+                                    onPress={() => handleSetReadingMode('scroll')}
+                                >
+                                    <Text style={{ color: theme.colors.text }}>{t('scrollMode')}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[
+                                        styles.themeOption, 
+                                        { width: 80, borderRadius: 15 },
+                                        readingMode === 'slide' && { borderWidth: 2, borderColor: theme.colors.primary }
+                                    ]}
+                                    onPress={() => handleSetReadingMode('slide')}
+                                >
+                                    <Text style={{ color: theme.colors.text }}>{t('slideMode')}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
                         <View style={styles.settingRow}>
                             <Text style={[styles.settingLabel, { color: theme.colors.text }]}>{t('fontSize')}</Text>
                             <View style={styles.settingControls}>

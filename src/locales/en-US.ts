@@ -38,6 +38,9 @@ export default {
   toc: 'Table of Contents',
   fontSize: 'Font Size',
   theme: 'Theme',
+  readingMode: 'Reading Mode',
+  scrollMode: 'Scroll',
+  slideMode: 'Slide',
   
   // Menu
   generateImage: 'Generate Image',
