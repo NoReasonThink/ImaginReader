@@ -21,6 +21,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, Book } from '../types';
 import { MOCK_BOOKS } from '../data/mockBooks';
 import { EpubParser } from '../utils/EpubParser';
+import { TxtParser } from '../utils/TxtParser';
 import { SettingsService, ApiConfig } from '../services/SettingsService';
 import { useTheme, useLanguage } from '../contexts';
 
@@ -219,13 +220,11 @@ export default function BookshelfScreen() {
         }
       } else if (isText) {
         try {
-          console.log('Reading text file from:', permanentPath);
-          const fileContent = await RNFS.readFile(permanentPath, 'utf8');
+          console.log('Parsing text file from:', permanentPath);
+          const chaptersDir = `${RNFS.DocumentDirectoryPath}/books/${bookId}_chapters`;
           
-          const content = `
-            <!DOCTYPE html>
-            <html><body><pre>${fileContent}</pre></body></html>
-          `;
+          // Use TxtParser to split content into chapters
+          const { chapters } = await TxtParser.parse(permanentPath, chaptersDir);
           
           newBook = {
             id: bookId,
@@ -233,13 +232,14 @@ export default function BookshelfScreen() {
             author: 'Local File',
             coverUrl: 'https://via.placeholder.com/150/007AFF/FFFFFF?text=TXT',
             description: `Imported text file.`,
-            content: content,
+            content: '', // Use chapters instead
+            chapters: chapters,
             localPath: permanentPath,
             type: 'txt'
           };
         } catch (readErr) {
-          console.error('File read error:', readErr);
-          throw new Error('Could not read file content');
+          console.error('File parse error:', readErr);
+          throw new Error('Could not parse file content');
         }
       } else {
         // Fallback

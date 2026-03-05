@@ -14,10 +14,12 @@ import {
   TouchableWithoutFeedback,
   Animated,
   Platform,
-  PermissionsAndroid
+  PermissionsAndroid,
+  AppState
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import RNFS from 'react-native-fs';
+import SystemNavigationBar from 'react-native-system-navigation-bar';
 import Share from 'react-native-share';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
@@ -28,6 +30,7 @@ import { VideoGenerationService } from '../services/VideoGenerationService';
 import { MediaHistoryService } from '../services/MediaHistoryService';
 import { MediaListModal } from '../components/MediaListModal';
 import { EpubParser } from '../utils/EpubParser';
+import { TxtParser } from '../utils/TxtParser';
 import { useTheme, useLanguage } from '../contexts';
 import { ThemeType } from '../themes';
 
@@ -52,6 +55,16 @@ export default function ReaderScreen() {
   const [fontSize, setFontSize] = useState(20);
   const webviewRef = useRef<WebView>(null);
   const lastScrollYRef = useRef(0);
+  const currentBookRef = useRef<Book | null>(null);
+  const currentChapterIndexRef = useRef(0);
+
+  useEffect(() => {
+      currentBookRef.current = currentBook;
+  }, [currentBook]);
+
+  useEffect(() => {
+      currentChapterIndexRef.current = currentChapterIndex;
+  }, [currentChapterIndex]);
   const [selectedText, setSelectedText] = useState('');
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
@@ -61,6 +74,10 @@ export default function ReaderScreen() {
   // TOC
   const [isTOCVisible, setIsTOCVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.8)).current;
+  
+  // Controls Visibility (Header/Footer)
+  const [isControlsVisible, setIsControlsVisible] = useState(false);
+  const controlsAnim = useRef(new Animated.Value(0)).current; // 0: hidden, 1: visible
 
   // Settings Modal
   const [isSettingsVisible, setIsSettingsVisible] = useState(false);
@@ -89,18 +106,27 @@ export default function ReaderScreen() {
         if (initialBook.chapters && initialBook.chapters.length > 0) {
              setCurrentBook(initialBook);
              await loadChapter(initialBook, initialBook.lastChapterIndex || 0);
-        } else if (initialBook.localPath && initialBook.type === 'epub') {
-             // Re-parse or first parse for EPUB to get chapters
+        } else if (initialBook.localPath && (initialBook.type === 'epub' || initialBook.type === 'txt')) {
+             // Re-parse or first parse for EPUB/TXT to get chapters
              try {
-                 const assetsDir = `${RNFS.DocumentDirectoryPath}/books/${bookId}_assets`;
                  const chaptersDir = `${RNFS.DocumentDirectoryPath}/books/${bookId}_chapters`;
-                 // We need to parse to get chapters structure
-                 const parsed = await EpubParser.parse(initialBook.localPath, chaptersDir);
+                 
+                 let newChapters: Chapter[] = [];
+                 
+                 if (initialBook.type === 'epub') {
+                     // We need to parse to get chapters structure
+                     const parsed = await EpubParser.parse(initialBook.localPath, chaptersDir);
+                     newChapters = parsed.chapters || [];
+                 } else {
+                     // TXT
+                     const parsed = await TxtParser.parse(initialBook.localPath, chaptersDir);
+                     newChapters = parsed.chapters || [];
+                 }
                  
                  // Merge new parsed data
                  const updatedBook = {
                      ...initialBook,
-                     chapters: parsed.chapters,
+                     chapters: newChapters,
                      content: '' // Clear legacy content to save memory
                  };
                  setCurrentBook(updatedBook);
@@ -109,7 +135,7 @@ export default function ReaderScreen() {
                  // Save this structure update
                  updateBookInStorage(updatedBook);
              } catch (e) {
-                 console.error('Failed to parse EPUB chapters', e);
+                 console.error('Failed to parse chapters', e);
                  // Fallback to legacy content loading
                  loadLegacyContent(initialBook);
              }
@@ -208,20 +234,42 @@ export default function ReaderScreen() {
   };
 
   const saveProgress = async () => {
-    if (currentBook) {
+    const book = currentBookRef.current;
+    if (book) {
         const updatedBook = {
-            ...currentBook,
-            lastChapterIndex: currentChapterIndex,
+            ...book,
+            lastChapterIndex: currentChapterIndexRef.current,
             lastScrollY: lastScrollYRef.current
         };
-        setCurrentBook(updatedBook);
+        // We only update storage to avoid re-renders during background save
         await updateBookInStorage(updatedBook);
     }
   };
 
+  // Save progress on component unmount, AppState change, and interval
   useEffect(() => {
+      // 1. Unmount save
       return () => { saveProgress(); };
-  }, [currentChapterIndex, bookId]);
+  }, []); // Run only on unmount (dependency array empty because we use refs)
+
+  useEffect(() => {
+      // 2. AppState change save (background/inactive)
+      const subscription = AppState.addEventListener('change', (nextAppState) => {
+          if (nextAppState.match(/inactive|background/)) {
+              saveProgress();
+          }
+      });
+
+      // 3. Periodic save (every 30 seconds)
+      const intervalId = setInterval(() => {
+          saveProgress();
+      }, 30000);
+
+      return () => {
+          subscription.remove();
+          clearInterval(intervalId);
+      };
+  }, []); // Empty dependency array ensures listeners/interval are set once
 
   const increaseFontSize = () => setFontSize(prev => Math.min(prev + 2, 40));
   const decreaseFontSize = () => setFontSize(prev => Math.max(prev - 2, 12));
@@ -240,6 +288,8 @@ export default function ReaderScreen() {
         }
       } else if (data.type === 'scroll') {
         lastScrollYRef.current = data.scrollY;
+      } else if (data.type === 'toggleControls') {
+        toggleControls();
       }
     } catch (e) {}
   };
@@ -405,6 +455,7 @@ export default function ReaderScreen() {
 
   React.useLayoutEffect(() => {
     navigation.setOptions({
+      headerShown: isControlsVisible,
       title: currentBook?.title || t('reader'),
       headerLeft: () => (
           <TouchableOpacity onPress={toggleTOC} style={{ marginLeft: 10, padding: 5 }}>
@@ -421,12 +472,56 @@ export default function ReaderScreen() {
           </TouchableOpacity>
         </View>
       ),
-      headerStyle: { backgroundColor: theme.colors.headerBackground },
+      headerTransparent: true, // Make header overlay content
+      headerBackground: () => (
+          <Animated.View style={{
+              flex: 1,
+              backgroundColor: theme.colors.headerBackground,
+              opacity: controlsAnim
+          }} />
+      ),
+      headerStyle: { 
+          // We handle background in headerBackground to animate opacity
+          backgroundColor: 'transparent'
+      },
       headerTintColor: theme.colors.headerText,
     });
-  }, [navigation, currentBook, isTOCVisible, theme]);
+  }, [navigation, currentBook, isTOCVisible, theme, isControlsVisible, controlsAnim]);
 
-  // Inject JS to listen for selection and scroll
+  // Toggle controls visibility
+  const toggleControls = useCallback(() => {
+      const toValue = isControlsVisible ? 0 : 1;
+      const willBeVisible = !isControlsVisible;
+      
+      Animated.timing(controlsAnim, {
+          toValue,
+          duration: 300,
+          useNativeDriver: true
+      }).start();
+      
+      setIsControlsVisible(willBeVisible);
+      
+      if (willBeVisible) {
+          // Show system bars
+          SystemNavigationBar.navigationShow();
+      } else {
+          // Hide system bars
+          SystemNavigationBar.navigationHide();
+      }
+  }, [isControlsVisible, controlsAnim]);
+
+  // Initial immersive state
+  useEffect(() => {
+      // Start hidden
+      SystemNavigationBar.navigationHide();
+      
+      return () => {
+          // Restore on unmount
+          SystemNavigationBar.navigationShow();
+      };
+  }, []);
+
+  // Inject JS to listen for selection, scroll, and clicks
   const injectedJS = useMemo(() => `
     let lastKnownScrollPosition = 0;
     let ticking = false;
@@ -456,6 +551,18 @@ export default function ReaderScreen() {
       }, 500);
     });
     
+    // Detect taps (simple click detection without selection)
+    document.addEventListener('click', function(e) {
+        // Ignore clicks if selection is happening or menu is open
+        const selection = window.getSelection().toString();
+        if (selection.length > 0) return;
+        
+        // Post message to toggle controls
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'toggleControls'
+        }));
+    });
+    
     // Disable default context menu
     document.oncontextmenu = function(e) {
         e.preventDefault();
@@ -475,7 +582,8 @@ export default function ReaderScreen() {
           font-size: ${fontSize}px;
           line-height: 1.6;
           padding: 20px;
-          padding-bottom: 100px;
+          padding-top: 60px; /* Add padding for status bar/header */
+          padding-bottom: 80px; /* Add padding for footer */
           color: ${theme.colors.readerText};
           font-family: ${theme.typography.fontFamily};
           background-color: ${theme.colors.readerBackground};
@@ -522,7 +630,12 @@ export default function ReaderScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.readerBackground }]}>
-      <StatusBar barStyle={themeType === 'dark' ? "light-content" : "dark-content"} backgroundColor={theme.colors.headerBackground} />
+      <StatusBar 
+        hidden={!isControlsVisible}
+        barStyle={themeType === 'dark' ? "light-content" : "dark-content"} 
+        backgroundColor={theme.colors.headerBackground} 
+        translucent={true}
+      />
       
       {/* Chapter Content */}
       <WebView
@@ -543,7 +656,20 @@ export default function ReaderScreen() {
 
       {/* Chapter Navigation Buttons (Overlay) */}
       {currentBook?.chapters && currentBook.chapters.length > 0 && (
-          <View style={[styles.chapterNavContainer, { backgroundColor: theme.colors.readerBackground, borderTopColor: theme.colors.border }]}>
+          <Animated.View style={[
+              styles.chapterNavContainer, 
+              { 
+                  backgroundColor: theme.colors.readerBackground, 
+                  borderTopColor: theme.colors.border,
+                  opacity: controlsAnim,
+                  transform: [{
+                      translateY: controlsAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [100, 0]
+                      })
+                  }]
+              }
+          ]}>
               <TouchableOpacity 
                 style={[styles.navBtn, { backgroundColor: theme.colors.buttonSecondaryBackground }, currentChapterIndex === 0 && styles.navBtnDisabled]} 
                 onPress={() => changeChapter(currentChapterIndex - 1)}
@@ -563,7 +689,7 @@ export default function ReaderScreen() {
               >
                   <Text style={[styles.navBtnText, { color: theme.colors.buttonSecondaryText }]}>{`${t('nextChapter')} >`}</Text>
               </TouchableOpacity>
-          </View>
+          </Animated.View>
       )}
 
       {/* TOC Sidebar */}
@@ -730,7 +856,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   webview: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'transparent',
   },
   headerRight: {
@@ -835,11 +965,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   chapterNavContainer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
       padding: 10,
       borderTopWidth: 1,
+      zIndex: 10,
+      paddingBottom: 20, // Add extra padding for bottom safe area
   },
   navBtn: {
       padding: 10,
